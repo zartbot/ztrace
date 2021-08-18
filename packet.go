@@ -44,34 +44,51 @@ type TCPHeader struct {
 
 // pseudo header used for checksum calculation
 type pseudohdr struct {
-	ipsrc   []byte
-	ipdst   []byte
+	ipsrc   [4]byte
+	ipdst   [4]byte
 	zero    uint8
 	ipproto uint8
 	plen    uint16
 }
 
 //checksum function for ip header
+
 func checkSum(buf []byte) uint16 {
 	sum := uint32(0)
-	for n := 1; n < len(buf)-1; n += 2 {
+
+	for ; len(buf) >= 2; buf = buf[2:] {
 		sum += uint32(buf[0])<<8 | uint32(buf[1])
 	}
-	sum = (sum >> 16) + (sum & 0xffff)
-	sum += (sum >> 16)
-	cksum := ^uint16(sum)
-	return cksum
+	if len(buf) > 0 {
+		sum += uint32(buf[0]) << 8
+	}
+	for sum > 0xffff {
+		sum = (sum >> 16) + (sum & 0xffff)
+	}
+	csum := ^uint16(sum)
+	/*
+	 * From RFC 768:
+	 * If the computed checksum is zero, it is transmitted as all ones (the
+	 * equivalent in one's complement arithmetic). An all zero transmitted
+	 * checksum value means that the transmitter generated no checksum (for
+	 * debugging or for higher level protocols that don't care).
+	 */
+	if csum == 0 {
+		csum = 0xffff
+	}
+	return csum
 }
 
 func (u *UDPHeader) checksum(ip *ipv4.Header, payload []byte) {
-	u.Chksum = 0
+
 	phdr := pseudohdr{
-		ipsrc:   ip.Src,
-		ipdst:   ip.Dst,
 		zero:    0,
 		ipproto: uint8(ip.Protocol),
 		plen:    u.Length,
 	}
+
+	copy(phdr.ipsrc[:], ip.Src.To4())
+	copy(phdr.ipdst[:], ip.Dst.To4())
 	var b bytes.Buffer
 	binary.Write(&b, binary.BigEndian, &phdr)
 	binary.Write(&b, binary.BigEndian, u)
@@ -102,16 +119,17 @@ func (t *TraceRoute) BuildIPv4UDPkt(srcPort uint16, dstPort uint16, ttl uint8, i
 	iph.Checksum = int(checkSum(h))
 
 	udp := UDPHeader{
-		Src:    srcPort,
-		Dst:    dstPort,
-		Length: 40, //hardcode payload length 32
+		Src: srcPort,
+		Dst: dstPort,
 	}
 
 	payload := make([]byte, 32)
 	for i := 0; i < 32; i++ {
 		payload[i] = uint8(i + 64)
 	}
-	udp.checksum(iph, payload)
+	udp.Length = uint16(len(payload) + 8)
+	udp.Chksum = 0
+	//udp.checksum(iph, payload)
 
 	var buf bytes.Buffer
 	binary.Write(&buf, binary.BigEndian, &udp)

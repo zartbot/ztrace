@@ -117,7 +117,7 @@ func (t *TraceRoute) Print() {
 	if t.WideMode {
 		table.SetHeader([]string{"TTL ", "Server", "Name", "City", "Country", "ASN", "SP", "p95", "Latency", "Jitter", "Loss"})
 	} else {
-		table.SetHeader([]string{"TTL ", "Server", "Name", "City", "SP", "p95", "Latency", "Jitter", "Loss"})
+		table.SetHeader([]string{"TTL ", "Server", "Name", "Country", "SP", "p95", "Latency", "Jitter", "Loss"})
 
 	}
 	table.SetAutoFormatHeaders(false)
@@ -155,7 +155,7 @@ func (t *TraceRoute) Print() {
 				table.Append([]string{firstLine, saddr, sname, city, country, asn, sp, p95, latency, jitter, fmt.Sprintf("%-3.1f%%", loss)})
 
 			} else {
-				table.Append([]string{firstLine, saddr, sname, city, sp, p95, latency, jitter, fmt.Sprintf("%-3.1f%%", loss)})
+				table.Append([]string{firstLine, saddr, sname, country, sp, p95, latency, jitter, fmt.Sprintf("%-3.1f%%", loss)})
 			}
 			if firstLine != "" {
 				firstLine = ""

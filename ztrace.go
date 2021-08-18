@@ -56,7 +56,7 @@ type StatsDB struct {
 }
 
 func NewStatsDB(key string) *StatsDB {
-	cacheTimeout := time.Duration(5 * time.Second)
+	cacheTimeout := time.Duration(6 * time.Second)
 	checkFreq := time.Duration(1 * time.Second)
 	var cnt uint64
 	px := &StatsDB{
