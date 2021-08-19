@@ -14,14 +14,14 @@ import (
 
 type SendMetric struct {
 	FlowKey   string
-	ID        uint16
+	ID        uint32
 	TTL       uint8
 	TimeStamp time.Time
 }
 
 type RecvMetric struct {
 	FlowKey   string
-	ID        uint16
+	ID        uint32
 	RespAddr  string
 	TimeStamp time.Time
 }
@@ -35,6 +35,7 @@ type TraceRoute struct {
 	SendChan   chan *SendMetric
 	RecvChan   chan *RecvMetric
 	WideMode   bool
+	PortOffset int32
 
 	netSrcAddr net.IP //used for raw socket and TCP-Traceroute
 	netDstAddr net.IP
@@ -43,6 +44,7 @@ type TraceRoute struct {
 	stopSignal *int32 //atomic Counters,stop when cnt =1
 
 	recvICMPConn *net.IPConn
+	recvTCPConn  *net.IPConn
 	geo          *geoip.GeoIPDB
 
 	//stats
@@ -122,7 +124,7 @@ func (t *TraceRoute) VerifyCfg() {
 	}
 }
 
-func New(dest string, src string, maxPath int, maxTtl uint8, pps float32, wmode bool, asncfg string, geocfg string) *TraceRoute {
+func New(dest string, src string, maxPath int, maxTtl uint8, pps float32, portoffset int, wmode bool, asncfg string, geocfg string) *TraceRoute {
 	result := &TraceRoute{
 		SrcAddr:    src,
 		Dest:       dest,
@@ -133,6 +135,7 @@ func New(dest string, src string, maxPath int, maxTtl uint8, pps float32, wmode 
 		SendChan:   make(chan *SendMetric, 10),
 		RecvChan:   make(chan *RecvMetric, 10),
 		geo:        geoip.New(geocfg, asncfg),
+		PortOffset: int32(portoffset),
 	}
 	result.VerifyCfg()
 	result.Lock = &sync.RWMutex{}
@@ -149,11 +152,17 @@ func (t *TraceRoute) Start() {
 	for i := 0; i < t.MaxPath; i++ {
 		go t.SendIPv4UDP()
 	}
-	go t.Report()
-
+	go t.SendIPv4TCP(443)
+	go t.SendIPv4TCP(80)
+	//go t.SendIPv4TCP(22)
+	go t.SendIPv4TCP(8080)
+	go t.SendIPv4TCP(8443)
+	go t.ListenIPv4TCP()
+	go t.ListenIPv4ICMP()
 }
 
 func (t *TraceRoute) Stop() {
 	atomic.StoreInt32(t.stopSignal, 1)
 	t.recvICMPConn.Close()
+	t.recvTCPConn.Close()
 }

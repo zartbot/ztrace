@@ -56,7 +56,14 @@ func (t *TraceRoute) NewServerRecord(ipaddr string, ttl uint8, key string) *Serv
 		RecvCnt: 0,
 		Lock:    &sync.Mutex{},
 	}
-	r.GeoLocation = t.geo.Lookup(ipaddr)
+	if strings.Contains(ipaddr, "tcp") {
+		addr := strings.Split(ipaddr, ":")
+		r.Addr = addr[1] + ":" + addr[2]
+		r.GeoLocation = t.geo.Lookup(addr[1])
+	} else {
+		r.GeoLocation = t.geo.Lookup(ipaddr)
+	}
+
 	return r
 }
 
@@ -64,7 +71,6 @@ func (t *TraceRoute) Stats() {
 	for {
 		select {
 		case v := <-t.SendChan:
-
 			tdb, ok := t.DB.Load(v.FlowKey)
 			if !ok {
 				continue
@@ -73,7 +79,6 @@ func (t *TraceRoute) Stats() {
 			db.Cache.Store(v.ID, v, v.TimeStamp)
 
 		case v := <-t.RecvChan:
-
 			tdb, ok := t.DB.Load(v.FlowKey)
 			if !ok {
 				continue
@@ -109,118 +114,110 @@ func (t *TraceRoute) Stats() {
 	}
 }
 
+func (t *TraceRoute) PrintRow(id int) (string, [][]string) {
+	data := make([][]string, 0)
+	RespAddr := ""
+	hid := fmt.Sprintf("%4d", id)
+	if id == 0 {
+		hid = "TCP"
+	}
+	for _, v := range t.Metric[id] {
+
+		latency := fmt.Sprintf("%8.2fms", v.LatencyDescribe.Mean/1000)
+		jitter := fmt.Sprintf("%8.2fms", v.LatencyDescribe.Std()/1000)
+		p95 := fmt.Sprintf("%12.2fms", v.Quantile.Query(0.95)/1000)
+		tdb, ok := t.DB.Load(v.Session)
+
+		loss := float32(0)
+		if ok {
+			statsDB := tdb.(*StatsDB)
+			sendCnt := atomic.LoadUint64(statsDB.SendCnt)
+			if sendCnt != 0 {
+				loss = (1 - float32(v.RecvCnt)/float32(sendCnt)) * 100
+			}
+
+			if v.RecvCnt > sendCnt {
+				loss = 0
+			}
+		}
+
+		city := fmt.Sprintf("%-16.16s", v.GeoLocation.City)
+		country := fmt.Sprintf("%-16.16s", v.GeoLocation.Country)
+		asn := fmt.Sprintf("%-10d", v.GeoLocation.ASN)
+
+		sp := fmt.Sprintf("%-16.16s", v.GeoLocation.SPName)
+		saddr := fmt.Sprintf("%-21.21s", v.Addr)
+
+		if RespAddr == "" {
+			RespAddr = v.Addr
+		}
+		sname := fmt.Sprintf("%-26.26s", v.Name)
+		if t.WideMode {
+			sname = fmt.Sprintf("%-30.30s", v.Name)
+			sp = fmt.Sprintf("%-30.30s", v.GeoLocation.SPName)
+			p75 := fmt.Sprintf("%12.2fms", v.Quantile.Query(0.75)/1000)
+			data = append(data, []string{hid, saddr, sname, city, country, asn, sp, p75, p95, latency, jitter, fmt.Sprintf("%4.1f%%", loss)})
+		} else {
+			data = append(data, []string{hid, saddr, sname, country, sp, p95, latency, jitter, fmt.Sprintf("%4.1f%%", loss)})
+		}
+		if hid != "" {
+			hid = ""
+		}
+	}
+	return RespAddr, data
+}
+
 func (t *TraceRoute) Print() {
 	fmt.Printf("\033[H\033[2J")
-	fmt.Printf("\n   Traceroute Report\n\n")
+	fmt.Printf("\n[%s]Traceroute Report\n\n", t.Dest)
+
 	table := tablewriter.NewWriter(os.Stdout)
 
 	if t.WideMode {
-		table.SetHeader([]string{"TTL ", "Server", "Name", "City", "Country", "ASN", "SP", "p95", "Latency", "Jitter", "Loss"})
+		table.SetHeader([]string{"TTL  ", "Server", "Name", "City", "Country", "ASN", "SP", "p75", "p95", "Latency", "Jitter", "Loss"})
 	} else {
-		table.SetHeader([]string{"TTL ", "Server", "Name", "Country", "SP", "p95", "Latency", "Jitter", "Loss"})
+		table.SetHeader([]string{"TTL  ", "Server", "Name", "Country", "SP", "p95", "Latency", "Jitter", "Loss"})
 
 	}
 	table.SetAutoFormatHeaders(false)
+	/*
+		table.SetRowLine(true)
+		if t.WideMode {
+			table.SetAutoMergeCellsByColumnIndex([]int{0, 3, 4, 5, 6})
+		} else {
+			table.SetAutoMergeCellsByColumnIndex([]int{0, 3, 4, 5})
+		}*/
 	for ttl := 1; ttl <= int(t.MaxTTL); ttl++ {
-		StopFlag := false
-		firstLine := fmt.Sprintf("%3d", ttl)
-		for _, v := range t.Metric[ttl] {
-
-			latency := fmt.Sprintf("%-8.2fms", v.LatencyDescribe.Mean/1000)
-			jitter := fmt.Sprintf("%-8.2fms", v.LatencyDescribe.Std()/1000)
-			p95 := fmt.Sprintf("%12.2fms", v.Quantile.Query(0.95)/1000)
-			tdb, ok := t.DB.Load(v.Session)
-
-			loss := float32(0)
-			if ok {
-				statsDB := tdb.(*StatsDB)
-				sendCnt := atomic.LoadUint64(statsDB.SendCnt)
-				if sendCnt != 0 {
-					loss = (1 - float32(v.RecvCnt)/float32(sendCnt)) * 100
-				}
-
-				if v.RecvCnt > sendCnt {
-					loss = 0
-				}
-			}
-
-			city := fmt.Sprintf("%-16.16s", v.GeoLocation.City)
-			country := fmt.Sprintf("%-16.16s", v.GeoLocation.Country)
-			asn := fmt.Sprintf("%-10d", v.GeoLocation.ASN)
-
-			sp := fmt.Sprintf("%-16.16s", v.GeoLocation.SPName)
-			saddr := fmt.Sprintf("%-16.16s", v.Addr)
-			sname := fmt.Sprintf("%-26.26s", v.Name)
-			if t.WideMode {
-				table.Append([]string{firstLine, saddr, sname, city, country, asn, sp, p95, latency, jitter, fmt.Sprintf("%-3.1f%%", loss)})
-
-			} else {
-				table.Append([]string{firstLine, saddr, sname, country, sp, p95, latency, jitter, fmt.Sprintf("%-3.1f%%", loss)})
-			}
-			if firstLine != "" {
-				firstLine = ""
-			}
-			if v.Addr == t.netDstAddr.String() {
-				StopFlag = true
-				break
-			}
-
-		}
-		if StopFlag {
+		respAddr, data := t.PrintRow(ttl)
+		table.AppendBulk(data)
+		if respAddr == t.netDstAddr.String() {
 			break
 		}
+	}
+
+	table.Render()
+
+	t1 := tablewriter.NewWriter(os.Stdout)
+
+	if t.WideMode {
+		t1.SetHeader([]string{"Probe", "Server", "Name", "City", "Country", "ASN", "SP", "p75", "p95", "Latency", "Jitter", "Loss"})
+	} else {
+		t1.SetHeader([]string{"Probe", "Server", "Name", "Country", "SP", "p95", "Latency", "Jitter", "Loss"})
 
 	}
-	table.Render()
+	t1.SetAutoFormatHeaders(false)
+	_, data := t.PrintRow(0)
+	t1.AppendBulk(data)
+	t1.Render()
 
 }
 
-func (t *TraceRoute) Report() {
+func (t *TraceRoute) Report(freq time.Duration) {
 	for {
 		t.Print()
 		if atomic.LoadInt32(t.stopSignal) == 1 {
 			return
 		}
-		time.Sleep(time.Second)
+		time.Sleep(freq)
 	}
 }
-
-/*
-
-fmt.Printf("\033[H\033[2J")
-	fmt.Printf("\n   SDWAN Performance Test Report\n\n")
-
-	table := tablewriter.NewWriter(os.Stdout)
-
-	table.SetHeader([]string{"Stats ", "Latency(ms)", "Bandwidth(Per Session)"})
-	table.SetAutoFormatHeaders(false)
-	table.Append([]string{"mean", fmt.Sprintf("%20.2fms", LatencyStats.Mean), fmt.Sprintf("%20.2fMbps", BWStats.Mean)})
-	table.Append([]string{"Jitter", fmt.Sprintf("%20.2fms", LatencyStats.Std()), ""})
-	table.Append([]string{"", "", ""})
-	table.Append([]string{"Min", fmt.Sprintf("%20.2fms", LatencyStats.Min), fmt.Sprintf("%20.2fMbps", BWStats.Min)})
-	table.Append([]string{"p25", fmt.Sprintf("%20.2fms", LatencyQuantile.Query(0.25)), fmt.Sprintf("%20.2fMbps", BWQuantile.Query(0.25))})
-	table.Append([]string{"p75", fmt.Sprintf("%20.2fms", LatencyQuantile.Query(0.75)), fmt.Sprintf("%20.2fMbps", BWQuantile.Query(0.75))})
-	table.Append([]string{"p90", fmt.Sprintf("%20.2fms", LatencyQuantile.Query(0.90)), fmt.Sprintf("%20.2fMbps", BWQuantile.Query(0.90))})
-	table.Append([]string{"p95", fmt.Sprintf("%20.2fms", LatencyQuantile.Query(0.95)), fmt.Sprintf("%20.2fMbps", BWQuantile.Query(0.95))})
-	table.Append([]string{"p99", fmt.Sprintf("%20.2fms", LatencyQuantile.Query(0.99)), fmt.Sprintf("%20.2fMbps", BWQuantile.Query(0.99))})
-	table.Append([]string{"Max", fmt.Sprintf("%20.2fms", LatencyStats.Max), fmt.Sprintf("%20.2fMbps", BWStats.Max)})
-	table.SetFooter([]string{fmt.Sprintf("Count: %d", LatencyQuantile.Count()), fmt.Sprintf("Error: %d | Timeout: %d", errors, timeouts), fmt.Sprintf("Total-BW: %10.2fMbps", BWStats.Mean*float64(cli.ClientNum))})
-
-	table.Render()
-
-func (p *Proxy) TableRender(name string, addrList map[string]string) {
-	fmt.Printf("[%s] DNS Lookup Result\n\n", name)
-
-	table := tablewriter.NewWriter(os.Stdout)
-
-	table.SetHeader([]string{"Addresss ", "ASN", "City", "Region", "Country", "Location", "Distance(KM)", "DNS Server"})
-	table.SetAutoFormatHeaders(false)
-
-	for k, v := range addrList {
-		result := p.geo.Lookup(k)
-		distance := geoip.ComputeDistance(31.02, 121.26, result.Latitude, result.Longitude)
-		table.Append([]string{k, fmt.Sprintf("%-30.30s", result.SPName), fmt.Sprintf("%-16.16s", result.City), fmt.Sprintf("%-16.16s", result.Region), fmt.Sprintf("%-16.16s", result.Country), fmt.Sprintf("%6.2f , %6.2f", result.Latitude, result.Longitude), fmt.Sprintf("%8.0f", distance), v})
-	}
-	table.Render()
-}
-*/

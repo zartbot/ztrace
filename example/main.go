@@ -31,11 +31,9 @@ func init() {
 }
 
 func main() {
-
-	t := ztrace.New(cmd.dst, "", cmd.maxPath, uint8(cmd.maxTTL), float32(cmd.pps), cmd.wmode, "geoip/asn.mmdb", "geoip/geoip.mmdb")
+	t := ztrace.New(cmd.dst, "", cmd.maxPath, uint8(cmd.maxTTL), float32(cmd.pps), 0, cmd.wmode, "geoip/asn.mmdb", "geoip/geoip.mmdb")
 	t.Start()
-	go t.ListenIPv4()
+	go t.Report(time.Second)
 	time.Sleep(time.Second * 100)
 	t.Stop()
-
 }
