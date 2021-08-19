@@ -152,17 +152,18 @@ func (t *TraceRoute) Start() {
 	for i := 0; i < t.MaxPath; i++ {
 		go t.SendIPv4UDP()
 	}
+
 	go t.SendIPv4TCP(443)
 	go t.SendIPv4TCP(80)
 	//go t.SendIPv4TCP(22)
 	go t.SendIPv4TCP(8080)
 	go t.SendIPv4TCP(8443)
-	go t.ListenIPv4TCP()
+
 	go t.ListenIPv4ICMP()
 }
 
 func (t *TraceRoute) Stop() {
 	atomic.StoreInt32(t.stopSignal, 1)
 	t.recvICMPConn.Close()
-	t.recvTCPConn.Close()
+	//t.recvTCPConn.Close()
 }
