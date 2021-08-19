@@ -17,7 +17,7 @@ var cmd = struct {
 	"8.8.8.8",
 	16,
 	64,
-	5,
+	1,
 	false,
 }
 
@@ -34,8 +34,8 @@ func main() {
 
 	t := ztrace.New(cmd.dst, "", cmd.maxPath, uint8(cmd.maxTTL), float32(cmd.pps), cmd.wmode, "geoip/asn.mmdb", "geoip/geoip.mmdb")
 	t.Start()
-	go t.Stop()
-	t.ListenIPv4()
-	time.Sleep(time.Second * 2)
+	go t.ListenIPv4()
+	time.Sleep(time.Second * 100)
+	t.Stop()
 
 }

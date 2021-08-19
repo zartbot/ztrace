@@ -154,7 +154,6 @@ func (t *TraceRoute) Start() {
 }
 
 func (t *TraceRoute) Stop() {
-	time.Sleep(time.Second * 20)
 	atomic.StoreInt32(t.stopSignal, 1)
 	t.recvICMPConn.Close()
 }
