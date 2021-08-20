@@ -114,8 +114,36 @@ func (t *TraceRoute) Stats() {
 	}
 }
 
-func (t *TraceRoute) PrintRow(id int) (string, [][]string) {
-	data := make([][]string, 0)
+func GetColorByLatency(latency float64) tablewriter.Colors {
+	if latency < 20 {
+		return tablewriter.Colors{tablewriter.FgHiGreenColor}
+	}
+	if latency > 150 {
+		return tablewriter.Colors{tablewriter.FgHiRedColor}
+	}
+	if latency > 100 {
+		return tablewriter.Colors{tablewriter.FgHiYellowColor}
+	}
+	return tablewriter.Colors{}
+}
+
+func GetColorByLoss(loss float32) tablewriter.Colors {
+	if loss < 0.5 {
+		return tablewriter.Colors{tablewriter.FgHiGreenColor}
+	}
+	if loss > 10 {
+		return tablewriter.Colors{tablewriter.FgHiRedColor}
+	}
+	if loss > 3 {
+		return tablewriter.Colors{tablewriter.FgHiYellowColor}
+	}
+	return tablewriter.Colors{}
+}
+
+func (t *TraceRoute) PrintRow(table *tablewriter.Table, id int) string {
+
+	ColorNormal := tablewriter.Colors{}
+
 	RespAddr := ""
 	hid := fmt.Sprintf("%4d", id)
 	if id == 0 {
@@ -155,16 +183,46 @@ func (t *TraceRoute) PrintRow(id int) (string, [][]string) {
 		if t.WideMode {
 			sname = fmt.Sprintf("%-30.30s", v.Name)
 			sp = fmt.Sprintf("%-30.30s", v.GeoLocation.SPName)
-			p75 := fmt.Sprintf("%12.2fms", v.Quantile.Query(0.75)/1000)
-			data = append(data, []string{hid, saddr, sname, city, country, asn, sp, p75, p95, latency, jitter, fmt.Sprintf("%4.1f%%", loss)})
+			distance := geoip.ComputeDistance(t.Latitude, t.Longitude, v.GeoLocation.Latitude, v.GeoLocation.Longitude)
+
+			latencyByDistance := distance/75 + float64(id)*3
+			if id == 0 {
+				latencyByDistance += 30
+			}
+			/*
+			  LightSpeed over Fiber is nearly 150,000km/s
+			  RTT(ms) = distance *2 / Fiber_LightSpeed *1000 = 2 * distance /150,000 * 1000 = distance /100
+			  Each hop contribute 3ms latency,based on average QoS and forwarding latency estimation
+			*/
+			distanceStr := fmt.Sprintf("%6.0fkm[%3.0fms]", distance, latencyByDistance)
+			if v.GeoLocation.Latitude == 0 && v.GeoLocation.Longitude == 0 {
+				distanceStr = fmt.Sprintf("%12s", "")
+			}
+			data := []string{hid, saddr, sname, city, country, asn, sp, distanceStr, p95, latency, jitter, fmt.Sprintf("%4.1f%%", loss)}
+			rowColor := make([]tablewriter.Colors, len(data))
+			for i := 0; i < len(data); i++ {
+				rowColor[i] = ColorNormal
+			}
+			rowColor[8] = GetColorByLatency(v.Quantile.Query(0.95) / 1000)
+			rowColor[9] = GetColorByLatency(v.LatencyDescribe.Mean / 1000)
+			rowColor[11] = GetColorByLoss(loss)
+			table.Rich(data, rowColor)
 		} else {
-			data = append(data, []string{hid, saddr, sname, country, sp, p95, latency, jitter, fmt.Sprintf("%4.1f%%", loss)})
+			data := []string{hid, saddr, sname, country, sp, p95, latency, jitter, fmt.Sprintf("%4.1f%%", loss)}
+			rowColor := make([]tablewriter.Colors, len(data))
+			for i := 0; i < len(data); i++ {
+				rowColor[i] = ColorNormal
+			}
+			rowColor[5] = GetColorByLatency(v.Quantile.Query(0.95) / 1000)
+			rowColor[6] = GetColorByLatency(v.LatencyDescribe.Mean / 1000)
+			rowColor[8] = GetColorByLoss(loss)
+			table.Rich(data, rowColor)
 		}
 		if hid != "" {
 			hid = ""
 		}
 	}
-	return RespAddr, data
+	return RespAddr
 }
 
 func (t *TraceRoute) Print() {
@@ -174,7 +232,7 @@ func (t *TraceRoute) Print() {
 	table := tablewriter.NewWriter(os.Stdout)
 
 	if t.WideMode {
-		table.SetHeader([]string{"TTL  ", "Server", "Name", "City", "Country", "ASN", "SP", "p75", "p95", "Latency", "Jitter", "Loss"})
+		table.SetHeader([]string{"TTL  ", "Server", "Name", "City", "Country", "ASN", "SP", "Distance[tRTT]", "p95", "Latency", "Jitter", "Loss"})
 	} else {
 		table.SetHeader([]string{"TTL  ", "Server", "Name", "Country", "SP", "p95", "Latency", "Jitter", "Loss"})
 
@@ -188,8 +246,7 @@ func (t *TraceRoute) Print() {
 			table.SetAutoMergeCellsByColumnIndex([]int{0, 3, 4, 5})
 		}*/
 	for ttl := 1; ttl <= int(t.MaxTTL); ttl++ {
-		respAddr, data := t.PrintRow(ttl)
-		table.AppendBulk(data)
+		respAddr := t.PrintRow(table, ttl)
 		if respAddr == t.netDstAddr.String() {
 			break
 		}
@@ -200,14 +257,13 @@ func (t *TraceRoute) Print() {
 	t1 := tablewriter.NewWriter(os.Stdout)
 
 	if t.WideMode {
-		t1.SetHeader([]string{"Probe", "Server", "Name", "City", "Country", "ASN", "SP", "p75", "p95", "Latency", "Jitter", "Loss"})
+		t1.SetHeader([]string{"Probe", "Server", "Name", "City", "Country", "ASN", "SP", "Distance[tRTT]", "p95", "Latency", "Jitter", "Loss"})
 	} else {
 		t1.SetHeader([]string{"Probe", "Server", "Name", "Country", "SP", "p95", "Latency", "Jitter", "Loss"})
-
 	}
+
 	t1.SetAutoFormatHeaders(false)
-	_, data := t.PrintRow(0)
-	t1.AppendBulk(data)
+	t.PrintRow(t1, 0)
 	t1.Render()
 
 }

@@ -32,6 +32,8 @@ func init() {
 
 func main() {
 	t := ztrace.New(cmd.dst, "", cmd.maxPath, uint8(cmd.maxTTL), float32(cmd.pps), 0, cmd.wmode, "geoip/asn.mmdb", "geoip/geoip.mmdb")
+	t.Latitude = 31.02
+	t.Longitude = 121.1
 	t.Start()
 	go t.Report(time.Second)
 	time.Sleep(time.Second * 100)

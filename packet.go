@@ -238,3 +238,57 @@ func (t *TraceRoute) BuildIPv4TCPPRST(srcPort uint16, dstPort uint16, ttl uint8,
 	binary.Write(&buf, binary.BigEndian, &tcp)
 	return iph, buf.Bytes()
 }
+
+type ICMPHeader struct {
+	IType    uint8
+	ICode    uint8
+	Checksum uint16
+	ID       uint16
+	Seq      uint16
+}
+
+func (t *TraceRoute) BuildIPv4ICMP(ttl uint8, id, seq uint16, tos int) (*ipv4.Header, []byte) {
+	iph := &ipv4.Header{
+		Version:  ipv4.Version,
+		TOS:      tos,
+		Len:      ipv4.HeaderLen,
+		TotalLen: 40,
+		ID:       int(id),
+		Flags:    0,
+		FragOff:  0,
+		TTL:      int(ttl),
+		Protocol: 1,
+		Checksum: 0,
+		Src:      t.netSrcAddr,
+		Dst:      t.netDstAddr,
+	}
+
+	h, err := iph.Marshal()
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	iph.Checksum = int(checkSum(h))
+
+	icmp := ICMPHeader{
+		IType:    8, //Echo
+		ICode:    0,
+		Checksum: 0,
+		ID:       id,
+		Seq:      seq,
+	}
+
+	payload := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		payload[i] = uint8(i + 64)
+	}
+
+	var b bytes.Buffer
+	binary.Write(&b, binary.BigEndian, icmp)
+	binary.Write(&b, binary.BigEndian, &payload)
+	icmp.Checksum = checkSum(b.Bytes())
+
+	var buf bytes.Buffer
+	binary.Write(&buf, binary.BigEndian, &icmp)
+	binary.Write(&buf, binary.BigEndian, &payload)
+	return iph, buf.Bytes()
+}

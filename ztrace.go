@@ -48,9 +48,11 @@ type TraceRoute struct {
 	geo          *geoip.GeoIPDB
 
 	//stats
-	DB     sync.Map
-	Metric []map[string]*ServerRecord
-	Lock   *sync.RWMutex
+	DB        sync.Map
+	Metric    []map[string]*ServerRecord
+	Latitude  float64
+	Longitude float64
+	Lock      *sync.RWMutex
 }
 type StatsDB struct {
 	Cache   *tsyncmap.Map
@@ -153,13 +155,13 @@ func (t *TraceRoute) Start() {
 		go t.SendIPv4UDP()
 	}
 
-	go t.SendIPv4TCP(443)
-	go t.SendIPv4TCP(80)
-	//go t.SendIPv4TCP(22)
-	go t.SendIPv4TCP(8080)
-	go t.SendIPv4TCP(8443)
+	go t.IPv4TCPProbe(443)
+	go t.IPv4TCPProbe(80)
+	//go t.IPv4TCPProbe(22)
+	go t.IPv4TCPProbe(8080)
+	go t.IPv4TCPProbe(8443)
 
-	go t.ListenIPv4ICMP()
+	go t.ListenIPv4UDP()
 }
 
 func (t *TraceRoute) Stop() {
