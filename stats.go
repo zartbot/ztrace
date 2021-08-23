@@ -247,6 +247,10 @@ func (t *TraceRoute) Print() {
 		}*/
 	for ttl := 1; ttl <= int(t.MaxTTL); ttl++ {
 		respAddr := t.PrintRow(table, ttl)
+
+		if strings.Contains(respAddr, fmt.Sprintf(":%d", t.TCPDPort)) {
+			break
+		}
 		if respAddr == t.netDstAddr.String() {
 			break
 		}
@@ -254,18 +258,19 @@ func (t *TraceRoute) Print() {
 
 	table.Render()
 
-	t1 := tablewriter.NewWriter(os.Stdout)
+	if t.Protocol != "tcp" {
+		t1 := tablewriter.NewWriter(os.Stdout)
 
-	if t.WideMode {
-		t1.SetHeader([]string{"Probe", "Server", "Name", "City", "Country", "ASN", "SP", "Distance[tRTT]", "p95", "Latency", "Jitter", "Loss"})
-	} else {
-		t1.SetHeader([]string{"Probe", "Server", "Name", "Country", "SP", "p95", "Latency", "Jitter", "Loss"})
+		if t.WideMode {
+			t1.SetHeader([]string{"Probe", "Server", "Name", "City", "Country", "ASN", "SP", "Distance[tRTT]", "p95", "Latency", "Jitter", "Loss"})
+		} else {
+			t1.SetHeader([]string{"Probe", "Server", "Name", "Country", "SP", "p95", "Latency", "Jitter", "Loss"})
+		}
+
+		t1.SetAutoFormatHeaders(false)
+		t.PrintRow(t1, 0)
+		t1.Render()
 	}
-
-	t1.SetAutoFormatHeaders(false)
-	t.PrintRow(t1, 0)
-	t1.Render()
-
 }
 
 func (t *TraceRoute) Report(freq time.Duration) {

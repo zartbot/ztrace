@@ -27,15 +27,18 @@ type RecvMetric struct {
 }
 
 type TraceRoute struct {
-	SrcAddr    string
-	Dest       string
-	MaxPath    int
-	MaxTTL     uint8
-	PacketRate float32 //pps
-	SendChan   chan *SendMetric
-	RecvChan   chan *RecvMetric
-	WideMode   bool
-	PortOffset int32
+	SrcAddr       string
+	Dest          string
+	TCPDPort      uint16
+	TCPProbePorts []uint16
+	MaxPath       int
+	MaxTTL        uint8
+	Protocol      string
+	PacketRate    float32 //pps
+	SendChan      chan *SendMetric
+	RecvChan      chan *RecvMetric
+	WideMode      bool
+	PortOffset    int32
 
 	netSrcAddr net.IP //used for raw socket and TCP-Traceroute
 	netDstAddr net.IP
@@ -126,18 +129,21 @@ func (t *TraceRoute) VerifyCfg() {
 	}
 }
 
-func New(dest string, src string, maxPath int, maxTtl uint8, pps float32, portoffset int, wmode bool, asncfg string, geocfg string) *TraceRoute {
+func New(protocol string, dest string, src string, maxPath int, maxTtl uint8, pps float32, portoffset int, wmode bool, asncfg string, geocfg string) *TraceRoute {
 	result := &TraceRoute{
-		SrcAddr:    src,
-		Dest:       dest,
-		MaxPath:    maxPath,
-		MaxTTL:     maxTtl,
-		PacketRate: pps,
-		WideMode:   wmode,
-		SendChan:   make(chan *SendMetric, 10),
-		RecvChan:   make(chan *RecvMetric, 10),
-		geo:        geoip.New(geocfg, asncfg),
-		PortOffset: int32(portoffset),
+		SrcAddr:       src,
+		Dest:          dest,
+		TCPDPort:      443,
+		TCPProbePorts: []uint16{80, 8080, 443, 8443},
+		Protocol:      protocol,
+		MaxPath:       maxPath,
+		MaxTTL:        maxTtl,
+		PacketRate:    pps,
+		WideMode:      wmode,
+		SendChan:      make(chan *SendMetric, 10),
+		RecvChan:      make(chan *RecvMetric, 10),
+		geo:           geoip.New(geocfg, asncfg),
+		PortOffset:    int32(portoffset),
 	}
 	result.VerifyCfg()
 	result.Lock = &sync.RWMutex{}
@@ -149,19 +155,47 @@ func New(dest string, src string, maxPath int, maxTtl uint8, pps float32, portof
 	return result
 }
 
-func (t *TraceRoute) Start() {
-	go t.Stats()
+func (t *TraceRoute) ProbeTCP() {
+	for _, port := range t.TCPProbePorts {
+		go t.IPv4TCPProbe(port)
+	}
+}
+
+func (t *TraceRoute) TraceUDP() {
 	for i := 0; i < t.MaxPath; i++ {
 		go t.SendIPv4UDP()
 	}
-
-	go t.IPv4TCPProbe(443)
-	go t.IPv4TCPProbe(80)
-	//go t.IPv4TCPProbe(22)
-	go t.IPv4TCPProbe(8080)
-	go t.IPv4TCPProbe(8443)
-
 	go t.ListenIPv4UDP()
+}
+
+func (t *TraceRoute) TraceTCP() {
+	for i := 0; i < t.MaxPath; i++ {
+		go t.SendIPv4TCP(t.TCPDPort)
+	}
+	go t.ListenIPv4TCP()
+	go t.ListenIPv4TCP_ICMP()
+}
+
+func (t *TraceRoute) TraceICMP() {
+	go t.SendIPv4ICMP()
+	go t.ListenIPv4ICMP()
+}
+
+func (t *TraceRoute) Start() {
+	go t.Stats()
+
+	switch t.Protocol {
+	case "tcp":
+		go t.TraceTCP()
+	case "udp":
+		go t.TraceUDP()
+		go t.ProbeTCP()
+	case "icmp":
+		go t.TraceICMP()
+		go t.ProbeTCP()
+	default:
+		logrus.Fatal("unsupported protocol: only support tcp/udp/icmp")
+	}
 }
 
 func (t *TraceRoute) Stop() {
