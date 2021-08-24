@@ -2,7 +2,7 @@
 
 Traceroute in Go
 
-![]
+![](https://github.com/zartbot/ztrace/blob/main/ztrace.png?raw=true)
 
 ## Motivation
 Most network engineers need fast traceroute result and correlate it with service provider information and Geo locations.
