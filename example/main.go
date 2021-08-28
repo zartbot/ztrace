@@ -37,6 +37,8 @@ func init() {
 	flag.IntVar(&cmd.maxTTL, "ttl", cmd.maxTTL, "Max TTL")
 	flag.Float64Var(&cmd.pps, "rate", cmd.pps, "Packet Rate per second")
 	flag.BoolVar(&cmd.wmode, "wide", cmd.wmode, "Widescreen mode")
+	flag.Float64Var(&cmd.lat, "lat", cmd.lat, "Latitude")
+	flag.Float64Var(&cmd.lat, "long", cmd.long, "Longitude")
 	flag.Parse()
 }
 
